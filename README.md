@@ -32,16 +32,6 @@ The first build takes several minutes while IRIS loads all patient data.
 | http://localhost:8080/csp/sys/UtilHome.csp | IRIS Management Portal (`_SYSTEM` / `demo`) |
 
 
-**Stop:**
-```bash
-docker compose down
-```
-
-**Full reset** (wipes all data):
-```bash
-docker compose down -v && rm -rf data/ && docker compose up --build
-```
-
 ## Using Your Own Data
 
 Replace the files in `fhirdata/100Set/` with your own FHIR R4 Bundle JSON files, then rebuild:
