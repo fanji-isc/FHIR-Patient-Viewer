@@ -1,0 +1,8 @@
+# IRIS runtime data (Docker volume)
+data/
+
+# OS
+.DS_Store
+
+# Editor
+.vscode/

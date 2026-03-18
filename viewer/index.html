@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FHIR Patient Viewer</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+  <style>
+    html, body { height: 100%; margin: 0; overflow: hidden; }
+    #app { height: 100vh; display: flex; flex-direction: column; }
+    .layout { flex: 1; overflow: hidden; display: flex; min-height: 0; }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: 280px; min-width: 280px;
+      overflow-y: auto; border-right: 1px solid #dee2e6; background: #fff;
+    }
+    .patient-item {
+      cursor: pointer; padding: 10px 16px;
+      border-bottom: 1px solid #f0f0f0; transition: background 0.1s;
+    }
+    .patient-item:hover  { background: #f8f9fa; }
+    .patient-item.active { background: #e7f3ff; border-left: 3px solid #0d6efd; }
+
+    /* ── Detail panel ── */
+    .detail { flex: 1; overflow-y: auto; min-width: 0; }
+    .empty-state { display: flex; align-items: center; justify-content: center; height: 100%; }
+    .avatar {
+      width: 48px; height: 48px; border-radius: 50%;
+      background: #0d6efd; color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.2rem; font-weight: 600; flex-shrink: 0;
+    }
+
+    /* ── Resource type cards (Level 0) ── */
+    .type-card {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 16px; margin-bottom: 8px;
+      border: 1px solid #dee2e6; border-radius: 8px;
+      cursor: pointer; background: #f8f9fa;
+      transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
+    }
+    .type-card:hover {
+      background: #e8f4fd; border-color: #0d6efd;
+      box-shadow: 0 2px 6px rgba(13,110,253,.12);
+    }
+    .type-badge {
+      font-size: 0.72rem; font-weight: 600;
+      background: #0d6efd; color: #fff;
+      padding: 2px 9px; border-radius: 12px;
+    }
+
+    /* ── Resource record cards (Level 1) ── */
+    .resource-card {
+      padding: 12px 16px; margin-bottom: 8px;
+      border: 1px solid #dee2e6; border-radius: 8px;
+      cursor: pointer; background: #fff;
+      transition: background 0.12s, border-color 0.12s;
+    }
+    .resource-card:hover { background: #f0f7ff; border-color: #0d6efd; }
+
+    /* ── NodeTree (Level 2) ── */
+    .node-tree { font-size: 0.84rem; line-height: 1.7; }
+
+    .node-leaf {
+      display: flex; flex-wrap: wrap; align-items: baseline;
+      gap: 4px; padding: 3px 6px; border-radius: 4px;
+    }
+    .node-leaf:hover { background: #f8f9fa; }
+    .node-key { font-weight: 600; color: #495057; white-space: nowrap; }
+    .node-val { color: #212529; word-break: break-all; }
+    .node-val-null { color: #adb5bd; font-style: italic; }
+    .node-ref {
+      color: #0d6efd; text-decoration: none; cursor: pointer;
+      word-break: break-all;
+    }
+    .node-ref:hover { text-decoration: underline; }
+
+    .node-toggle {
+      display: flex; align-items: center; gap: 6px;
+      padding: 4px 8px; margin: 2px 0;
+      border: 1px solid #e9ecef; border-radius: 6px;
+      cursor: pointer; background: #f8f9fa; user-select: none;
+      transition: background 0.1s, border-color 0.1s;
+    }
+    .node-toggle:hover { background: #e8f4fd; border-color: #0d6efd; }
+    .node-icon   { font-size: 0.65rem; color: #6c757d; transition: transform 0.15s; }
+    .node-icon.open { transform: rotate(90deg); }
+    .node-toggle-key { font-weight: 600; color: #495057; }
+    .node-meta {
+      font-size: 0.7rem; color: #868e96;
+      background: #e9ecef; padding: 1px 6px; border-radius: 10px;
+    }
+    .node-children {
+      margin-left: 16px;
+      padding-left: 10px;
+      border-left: 2px solid #dee2e6;
+      margin-top: 2px; margin-bottom: 2px;
+    }
+
+    /* ── JSON modal ── */
+    pre code.hljs { background: transparent; font-size: 0.78rem; }
+  </style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ── Navbar ───────────────────────────────────────────────────────── -->
+  <nav class="navbar px-3 py-2 flex-shrink-0 d-flex align-items-center gap-3"
+       style="background:#fff; border-bottom:2px solid #0d6efd;">
+    <span class="navbar-brand mb-0 me-auto fw-semibold d-flex align-items-center gap-2"
+          style="cursor:pointer; color:#212529;"
+          @click="selectedPatient = null; activeResourceType = null; activeResource = null">
+      <img src="https://assets.intersystems.com/75/3b/938e13ea4f348f5e0cf2857ea2fc/ints-creativedatatechnology-logo-cmyk-1.svg"
+           alt="InterSystems" style="height:26px;">
+      <span style="color:#6c757d; font-weight:400;">|</span>
+      FHIR Patient Viewer
+    </span>
+    <input v-model="searchQuery" @input="onSearch" type="search"
+           class="form-control form-control-sm" style="width:220px"
+           placeholder="Search by name…">
+    <small v-if="patients.length" class="text-muted text-nowrap">
+      {{ patients.length }} patients
+    </small>
+  </nav>
+
+  <!-- ── Main layout ──────────────────────────────────────────────────── -->
+  <div class="layout">
+
+    <!-- Sidebar ── patient list -->
+    <div class="sidebar">
+      <div v-if="loadingPatients" class="p-3 text-center text-muted small">
+        <div class="spinner-border spinner-border-sm me-1"></div>Loading…
+      </div>
+      <div v-else-if="errorPatients" class="p-3 text-danger small">
+        ⚠️ Could not connect to FHIR server.<br>
+        <span class="text-muted">{{ errorPatients }}</span>
+      </div>
+      <div v-else-if="patients.length === 0" class="p-3 text-muted text-center small">
+        No patients found
+      </div>
+      <div v-for="pt in patients" :key="pt.id"
+           class="patient-item"
+           :class="{ active: selectedPatient?.id === pt.id }"
+           @click="selectPatient(pt)">
+        <div class="fw-semibold" style="font-size:0.85rem">{{ ptName(pt) }}</div>
+        <div class="text-muted" style="font-size:0.72rem">
+          {{ pt.birthDate || '' }} · {{ genderChar(pt) }} · {{ ptCity(pt) }}
+        </div>
+      </div>
+    </div>
+
+    <!-- Detail panel ──────────────────────────────────────────────────── -->
+    <div class="detail">
+
+      <!-- Empty state -->
+      <div v-if="!selectedPatient" class="empty-state text-center text-muted">
+        <div>
+          <div style="font-size:4rem;opacity:.25">👤</div>
+          <p class="mt-2 small">Select a patient from the list</p>
+        </div>
+      </div>
+
+      <template v-else>
+
+        <!-- Demographics banner -->
+        <div class="border-bottom px-4 py-3 bg-light flex-shrink-0">
+          <div class="d-flex align-items-start gap-3">
+            <div class="avatar">{{ ptInitials(selectedPatient) }}</div>
+            <div>
+              <h5 class="mb-1">{{ ptName(selectedPatient) }}</h5>
+              <div class="text-muted small d-flex flex-wrap gap-3">
+                <span>{{ selectedPatient.gender || '—' }}</span>
+                <span>Born {{ selectedPatient.birthDate || '—' }}
+                  <span class="ms-1 text-secondary">({{ ptAge(selectedPatient.birthDate) }})</span>
+                </span>
+                <span>MRN: <strong>{{ ptMRN(selectedPatient) }}</strong></span>
+                <span v-if="ptAddress(selectedPatient)">{{ ptAddress(selectedPatient) }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Loading -->
+        <div v-if="loadingDetail" class="p-5 text-center text-muted">
+          <div class="spinner-border text-primary"></div>
+          <p class="mt-2 small">Loading patient records…</p>
+        </div>
+
+        <!-- Error -->
+        <div v-else-if="errorDetail" class="p-4 text-danger small">
+          ⚠️ {{ errorDetail }}
+        </div>
+
+        <!-- Drill-down content -->
+        <div v-else-if="resourceTypes.length > 0" class="p-3">
+
+          <!-- ── Breadcrumb + actions ── -->
+          <div v-if="activeResourceType" class="d-flex align-items-center gap-2 mb-3">
+            <button class="btn btn-sm btn-outline-secondary py-0 px-2"
+                    @click="goBack" style="font-size:0.78rem">
+              ← Back
+            </button>
+            <span class="small text-muted">
+              <span class="fw-semibold text-dark">{{ activeResourceType }}</span>
+              <template v-if="activeResource">
+                <span class="mx-1">›</span>
+                <span>{{ activeResource.id }}</span>
+              </template>
+            </span>
+            <button v-if="!activeResource"
+                    class="btn btn-sm btn-outline-secondary py-0 px-2 ms-auto"
+                    @click="showJson(activeTypeResources, activeResourceType)"
+                    style="font-size:0.78rem">
+              { } Raw JSON
+            </button>
+            <button v-if="activeResource"
+                    class="btn btn-sm btn-outline-secondary py-0 px-2 ms-auto"
+                    @click="showJson(activeResource)"
+                    style="font-size:0.78rem">
+              { } Raw JSON
+            </button>
+          </div>
+
+          <!-- ── Level 0: Resource type cards ── -->
+          <template v-if="!activeResourceType">
+            <p class="text-muted small mb-3">
+              {{ resourceTypes.length }} resource types — click to explore
+            </p>
+            <div v-for="type in resourceTypes" :key="type"
+                 class="type-card" @click="selectResourceType(type)">
+              <div>
+                <span class="fw-semibold" style="font-size:0.9rem">{{ type }}</span>
+              </div>
+              <div class="d-flex align-items-center gap-2">
+                <span class="type-badge">{{ patientResources[type]?.length || 0 }}</span>
+                <span class="text-muted" style="font-size:1rem">›</span>
+              </div>
+            </div>
+          </template>
+
+          <!-- ── Level 1: Individual resources within a type ── -->
+          <template v-else-if="!activeResource">
+            <p class="text-muted small mb-3">
+              {{ activeTypeResources.length }} records — click to view fields
+            </p>
+            <div v-for="(res, i) in activeTypeResources" :key="res.id || i"
+                 class="resource-card" @click="selectResource(res)">
+              <div class="d-flex align-items-start justify-content-between gap-2">
+                <div class="flex-grow-1 min-width-0">
+                  <div class="fw-semibold text-primary" style="font-size:0.8rem">
+                    {{ res.resourceType }}/{{ res.id }}
+                  </div>
+                  <div v-if="resourceTitle(res)"
+                       class="mt-1 text-dark" style="font-size:0.88rem">
+                    {{ resourceTitle(res) }}
+                  </div>
+                  <div class="d-flex flex-wrap gap-2 mt-1">
+                    <span v-if="res.status"
+                          class="badge rounded-pill"
+                          :class="statusBadgeClass(res.status)"
+                          style="font-size:0.68rem; font-weight:500">
+                      {{ res.status }}
+                    </span>
+                    <span v-if="res.meta?.lastUpdated"
+                          class="text-muted" style="font-size:0.72rem">
+                      {{ res.meta.lastUpdated.slice(0, 10) }}
+                    </span>
+                  </div>
+                </div>
+                <span class="text-muted flex-shrink-0" style="font-size:1.1rem">›</span>
+              </div>
+            </div>
+          </template>
+
+          <!-- ── Level 2: Recursive field tree ── -->
+          <template v-else>
+            <!-- Resource header card -->
+            <div class="border rounded-3 bg-light px-3 py-2 mb-3 d-flex align-items-center gap-3">
+              <div>
+                <div class="fw-semibold text-primary" style="font-size:0.8rem">
+                  {{ activeResource.resourceType }}/{{ activeResource.id }}
+                </div>
+                <div v-if="resourceTitle(activeResource)"
+                     class="mt-1" style="font-size:0.95rem; font-weight:500">
+                  {{ resourceTitle(activeResource) }}
+                </div>
+              </div>
+              <div class="ms-auto d-flex align-items-center gap-2">
+                <span v-if="activeResource.status"
+                      class="badge rounded-pill"
+                      :class="statusBadgeClass(activeResource.status)">
+                  {{ activeResource.status }}
+                </span>
+              </div>
+            </div>
+
+            <!-- Field tree -->
+            <div class="border rounded-3 bg-white p-3">
+              <node-tree
+                v-for="(val, key) in filteredResource" :key="key"
+                :name="key" :node="val"
+                @navigate="navigateToRef"
+                @showjson="(p) => showJson(p.val, p.label)">
+              </node-tree>
+            </div>
+          </template>
+
+        </div>
+
+        <div v-else class="p-4 text-center text-muted small">
+          No resources found for this patient
+        </div>
+
+      </template>
+    </div>
+  </div>
+
+  <!-- ── JSON Modal ─────────────────────────────────────────────────────── -->
+  <div class="modal fade" id="jsonModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header py-2">
+          <h6 class="modal-title mb-0">
+            Raw JSON
+            <span class="badge bg-secondary ms-2 fw-normal" style="font-size:0.72rem">
+              {{ jsonType }}
+            </span>
+          </h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body p-0">
+          <pre class="m-0 p-3" style="max-height:72vh;overflow:auto;"><code
+            class="language-json" v-html="jsonContent"></code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- #app -->
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
+<script>
+const { createApp, ref, computed, onMounted, watch } = Vue
+
+const FHIR_BASE = '/fhir/r4'
+
+// ── Smart value extractor (for resource titles / summaries) ───────────────
+function extractValue(val, depth = 0) {
+  if (val == null)              return ''
+  if (typeof val === 'boolean') return val ? 'true' : 'false'
+  if (typeof val === 'number')  return String(val)
+  if (typeof val === 'string')  return val
+
+  if (Array.isArray(val)) {
+    if (val.length === 0) return ''
+    return val.map(v => extractValue(v, depth)).filter(Boolean).join(', ')
+  }
+
+  if (typeof val === 'object') {
+    if (val.family !== undefined || val.given !== undefined) {
+      return [(val.prefix || []).join(' '), (val.given || []).join(' '), val.family || '']
+        .filter(Boolean).join(' ').trim()
+    }
+    if (val.coding !== undefined || val.text !== undefined) {
+      return val.text || val.coding?.[0]?.display || val.coding?.[0]?.code || ''
+    }
+    if (val.code !== undefined && val.system !== undefined) {
+      return val.display || val.code || ''
+    }
+    if (val.value !== undefined) {
+      const unit = val.unit || val.currency || ''
+      return `${val.value}${unit ? ' ' + unit : ''}`
+    }
+    if (val.start !== undefined || val.end !== undefined) {
+      const s = val.start ? String(val.start).slice(0, 10) : ''
+      const e = val.end   ? String(val.end).slice(0, 10)   : ''
+      return (s && e) ? `${s} → ${e}` : (s || e)
+    }
+    if (val.reference !== undefined) return val.display || val.reference || ''
+    if (val.city !== undefined || val.line !== undefined) {
+      return [val.line?.join(', '), val.city, val.state, val.postalCode]
+        .filter(Boolean).join(', ')
+    }
+    const DISPLAY_FIELDS = ['display', 'text', 'name', 'title', 'description', 'status']
+    for (const f of DISPLAY_FIELDS) {
+      if (typeof val[f] === 'string' && val[f]) return val[f]
+    }
+    if (depth < 2) {
+      const SKIP_SUB = new Set(['sequence', 'focal', 'id', 'extension', 'modifierExtension'])
+      const parts = []
+      for (const [k, v] of Object.entries(val)) {
+        if (SKIP_SUB.has(k) || v == null) continue
+        const extracted = extractValue(v, depth + 1)
+        if (extracted) parts.push(extracted)
+      }
+      if (parts.length > 0) return parts.join(' · ')
+    }
+    return JSON.stringify(val)
+  }
+  return ''
+}
+
+// ── Fetch helper ──────────────────────────────────────────────────────────
+async function fhirFetch(url) {
+  const fullUrl = url.startsWith('http')
+    ? url.replace(/^https?:\/\/[^/]+\/csp\/healthshare\/demo\/fhir\/r4/, FHIR_BASE)
+    : FHIR_BASE + url
+  const res = await fetch(fullUrl, { headers: { Accept: 'application/fhir+json' } })
+  if (!res.ok) throw new Error(`FHIR server returned ${res.status} ${res.statusText}`)
+  return res.json()
+}
+
+// ── App ───────────────────────────────────────────────────────────────────
+const app = createApp({
+  setup() {
+
+    // Patient list
+    const patients        = ref([])
+    const loadingPatients = ref(false)
+    const errorPatients   = ref('')
+    const searchQuery     = ref('')
+    let   searchTimer     = null
+
+    // Patient detail
+    const selectedPatient  = ref(null)
+    const patientResources = ref({})
+    const loadingDetail    = ref(false)
+    const errorDetail      = ref('')
+
+    // Drill-down state
+    const activeResourceType = ref(null)  // null → show type list
+    const activeResource     = ref(null)  // null → show records list
+
+    // JSON modal
+    const jsonContent = ref('')
+    const jsonType    = ref('')
+    let   jsonModal   = null
+
+    // ── Computed ────────────────────────────────────────────────────────
+    const resourceTypes = computed(() => Object.keys(patientResources.value).sort())
+
+    const activeTypeResources = computed(() =>
+      activeResourceType.value ? (patientResources.value[activeResourceType.value] || []) : []
+    )
+
+    // Resource object without noisy top-level keys (shown in tree)
+    const TREE_SKIP = new Set(['resourceType', 'meta'])
+    const filteredResource = computed(() => {
+      if (!activeResource.value) return {}
+      const out = {}
+      for (const [k, v] of Object.entries(activeResource.value)) {
+        if (!TREE_SKIP.has(k)) out[k] = v
+      }
+      return out
+    })
+
+    // ── Helpers ──────────────────────────────────────────────────────────
+    const resourceTitle = (res) => {
+      const candidates = [
+        res.code, res.type, res.medicationCodeableConcept, res.vaccineCode,
+        res.medication, res.description, res.title, res.name,
+        res.class, res.category?.[0], res.serviceType, res.reasonCode?.[0],
+      ]
+      for (const c of candidates) {
+        if (!c) continue
+        const v = extractValue(c)
+        if (v) return v
+      }
+      return ''
+    }
+
+    const statusBadgeClass = (status) => {
+      const map = {
+        active: 'bg-success',
+        completed: 'bg-secondary',
+        stopped: 'bg-danger',
+        cancelled: 'bg-danger',
+        draft: 'bg-warning text-dark',
+        'in-progress': 'bg-primary',
+        finished: 'bg-secondary',
+        planned: 'bg-info text-dark',
+      }
+      return map[status?.toLowerCase()] || 'bg-secondary'
+    }
+
+    // ── Navigation ───────────────────────────────────────────────────────
+    const selectResourceType = (type) => {
+      activeResourceType.value = type
+      activeResource.value     = null
+    }
+
+    const selectResource = (res) => {
+      activeResource.value = res
+    }
+
+    const goBack = () => {
+      if (activeResource.value) {
+        activeResource.value = null
+      } else {
+        activeResourceType.value = null
+      }
+    }
+
+    // Navigate to a referenced resource (from NodeTree reference click)
+    const navigateToRef = (refStr) => {
+      const parts = String(refStr).split('/')
+      if (parts.length < 2) return
+      const id   = parts[parts.length - 1]
+      const type = parts[parts.length - 2]
+      const resources = patientResources.value[type] || []
+      const found = resources.find(r => r.id === id)
+      if (found) {
+        activeResourceType.value = type
+        activeResource.value     = found
+        // scroll detail panel to top
+        document.querySelector('.detail')?.scrollTo({ top: 0, behavior: 'smooth' })
+      }
+    }
+
+    // Reset drill-down when patient changes
+    watch(selectedPatient, () => {
+      activeResourceType.value = null
+      activeResource.value     = null
+    })
+
+    // ── Patient helpers ──────────────────────────────────────────────────
+    const ptName = (pt) => {
+      const n = pt?.name?.[0]
+      if (!n) return 'Unknown'
+      return [(n.given || []).join(' '), n.family || ''].filter(Boolean).join(' ').trim() || 'Unknown'
+    }
+    const ptInitials = (pt) => {
+      const n = pt?.name?.[0]
+      return ((n?.given?.[0]?.[0] || '') + (n?.family?.[0] || '')).toUpperCase() || '?'
+    }
+    const genderChar = (pt) => pt?.gender?.[0]?.toUpperCase() || '?'
+    const ptCity  = (pt) => {
+      const a = pt?.address?.[0]
+      return a ? [a.city, a.state].filter(Boolean).join(', ') : ''
+    }
+    const ptAge   = (dob) => {
+      if (!dob) return ''
+      return Math.floor((Date.now() - new Date(dob)) / (365.25 * 24 * 3600e3)) + 'y'
+    }
+    const ptMRN   = (pt) => {
+      const id = pt?.identifier?.find(i =>
+        i.type?.coding?.[0]?.code === 'MR' || i.type?.text?.includes('Medical')
+      )
+      return id?.value || pt?.id || '—'
+    }
+    const ptAddress = (pt) => {
+      const a = pt?.address?.[0]
+      if (!a) return ''
+      return [a.line?.join(' '), a.city, a.state, a.postalCode, a.country].filter(Boolean).join(', ')
+    }
+
+    // ── Patient list ─────────────────────────────────────────────────────
+    const loadPatients = async (query = '') => {
+      loadingPatients.value = true
+      errorPatients.value   = ''
+      try {
+        const path = query
+          ? `/Patient?name=${encodeURIComponent(query)}&_count=200&_sort=family`
+          : `/Patient?_count=200&_sort=family`
+        const bundle = await fhirFetch(path)
+        patients.value = (bundle.entry || []).map(e => e.resource).filter(Boolean)
+      } catch (e) {
+        errorPatients.value = e.message
+      } finally {
+        loadingPatients.value = false
+      }
+    }
+
+    const onSearch = () => {
+      clearTimeout(searchTimer)
+      searchTimer = setTimeout(() => loadPatients(searchQuery.value), 400)
+    }
+
+    // ── Patient detail ($everything) ─────────────────────────────────────
+    const selectPatient = async (pt) => {
+      if (selectedPatient.value?.id === pt.id) return
+      selectedPatient.value  = pt
+      patientResources.value = {}
+      errorDetail.value      = ''
+      loadingDetail.value    = true
+
+      try {
+        let   url        = `/Patient/${pt.id}/$everything?_count=1000`
+        const allEntries = []
+        while (url) {
+          const bundle = await fhirFetch(url)
+          ;(bundle.entry || []).forEach(e => { if (e.resource) allEntries.push(e.resource) })
+          url = bundle.link?.find(l => l.relation === 'next')?.url || null
+        }
+
+        const grouped = {}
+        allEntries.forEach(r => {
+          if (r.resourceType === 'Patient') return
+          grouped[r.resourceType] = grouped[r.resourceType] || []
+          grouped[r.resourceType].push(r)
+        })
+        patientResources.value = grouped
+      } catch (e) {
+        errorDetail.value = e.message
+      } finally {
+        loadingDetail.value = false
+      }
+    }
+
+    // ── JSON modal ────────────────────────────────────────────────────────
+    const showJson = (val, label) => {
+      jsonType.value    = label || val?.resourceType || typeof val
+      jsonContent.value = hljs.highlight(JSON.stringify(val, null, 2), { language: 'json' }).value
+      if (!jsonModal) jsonModal = new bootstrap.Modal(document.getElementById('jsonModal'))
+      jsonModal.show()
+    }
+
+    onMounted(() => loadPatients())
+
+    return {
+      // patient list
+      patients, loadingPatients, errorPatients, searchQuery, onSearch,
+      // patient detail
+      selectedPatient, patientResources, loadingDetail, errorDetail,
+      // drill-down
+      activeResourceType, activeResource, activeTypeResources, filteredResource,
+      resourceTypes, resourceTitle, statusBadgeClass,
+      selectResourceType, selectResource, goBack, navigateToRef,
+      // json modal
+      jsonContent, jsonType, showJson,
+      // patient helpers
+      selectPatient, ptName, ptInitials, genderChar, ptCity, ptAge, ptMRN, ptAddress,
+    }
+  },
+})
+
+// ── NodeTree — recursive FHIR field renderer ──────────────────────────────
+app.component('node-tree', {
+  name: 'node-tree',
+  props: ['name', 'node'],
+  emits: ['navigate', 'showjson'],
+
+  data() { return { isOpen: false } },
+
+  computed: {
+    isArr() { return Array.isArray(this.node) && this.node.length > 0 },
+    isObj() {
+      return !Array.isArray(this.node)
+          && typeof this.node === 'object'
+          && this.node !== null
+    },
+    isLeaf() { return !this.isArr && !this.isObj },
+    isRef()  { return this.name === 'reference' && typeof this.node === 'string' },
+  },
+
+  methods: {
+    toggle()              { this.isOpen = !this.isOpen },
+    clickRef()            { this.$emit('navigate', this.node) },
+    bubble(ref)           { this.$emit('navigate', ref) },
+    viewJson()            { this.$emit('showjson', { val: this.node, label: this.name }) },
+    bubbleJson(payload)   { this.$emit('showjson', payload) },
+  },
+
+  template: `
+    <div class="node-tree">
+
+      <!-- ── Array ── -->
+      <template v-if="isArr">
+        <div class="node-toggle" @click="toggle">
+          <span class="node-icon" :class="{ open: isOpen }">▶</span>
+          <span class="node-toggle-key">{{ name }}</span>
+          <span class="node-meta">{{ node.length }} items</span>
+          <button @click.stop="viewJson"
+                  style="margin-left:auto;font-size:0.68rem;padding:0 5px;line-height:1.4;
+                         border:1px solid #dee2e6;border-radius:4px;background:#fff;
+                         color:#6c757d;cursor:pointer;flex-shrink:0;"
+                  title="View JSON">{ }</button>
+        </div>
+        <div v-if="isOpen" class="node-children">
+          <node-tree
+            v-for="(child, i) in node" :key="i"
+            :name="'#' + (i + 1)" :node="child"
+            @navigate="bubble"
+            @showjson="bubbleJson">
+          </node-tree>
+        </div>
+      </template>
+
+      <!-- ── Object ── -->
+      <template v-else-if="isObj">
+        <div class="node-toggle" @click="toggle">
+          <span class="node-icon" :class="{ open: isOpen }">▶</span>
+          <span class="node-toggle-key">{{ name }}</span>
+          <span class="node-meta">object</span>
+          <button @click.stop="viewJson"
+                  style="margin-left:auto;font-size:0.68rem;padding:0 5px;line-height:1.4;
+                         border:1px solid #dee2e6;border-radius:4px;background:#fff;
+                         color:#6c757d;cursor:pointer;flex-shrink:0;"
+                  title="View JSON">{ }</button>
+        </div>
+        <div v-if="isOpen" class="node-children">
+          <node-tree
+            v-for="(val, key) in node" :key="key"
+            :name="key" :node="val"
+            @navigate="bubble"
+            @showjson="bubbleJson">
+          </node-tree>
+        </div>
+      </template>
+
+      <!-- ── Leaf ── -->
+      <template v-else>
+        <div class="node-leaf">
+          <span class="node-key">{{ name }}:</span>
+          <a v-if="isRef" class="node-ref" @click.prevent="clickRef">{{ node }}</a>
+          <span v-else-if="node == null" class="node-val-null">—</span>
+          <span v-else class="node-val">{{ node }}</span>
+        </div>
+      </template>
+
+    </div>
+  `,
+})
+
+app.mount('#app')
+</script>
+</body>
+</html>
