@@ -29,7 +29,7 @@ The first build takes several minutes while IRIS loads all patient data.
 | URL | Description |
 |---|---|
 | http://localhost:3000 | Patient Viewer |
-| http://localhost:8080/csp/sys/UtilHome.csp | IRIS Management Portal (`_SYSTEM` / `demo`) |
+| http://localhost:8080/csp/sys/UtilHome.csp | IRIS Management Portal (`_SYSTEM` / `ISCDEMO`) |
 
 
 ## Using Your Own Data
