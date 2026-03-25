@@ -17,8 +17,11 @@ A web app that runs entirely in Docker. It loads 115 synthetic patient records i
 - Click a `reference` field to jump directly to the referenced resource
 - View the raw JSON of any resource
 
-## Quick Start	
+## Quick Start
 
+### Option 1 — Full Stack (Docker)
+
+Includes a built-in IRIS FHIR server preloaded with 115 synthetic patients.
 
 ```bash
 docker compose up --build
@@ -30,6 +33,13 @@ The first build takes several minutes while IRIS loads all patient data.
 |---|---|
 | http://localhost:3000 | Patient Viewer |
 | http://localhost:8080/csp/sys/UtilHome.csp | IRIS Management Portal (`_SYSTEM` / `ISCDEMO`) |
+
+### Option 2 — Connect to an Existing FHIR Server
+
+Already have IRIS running? No Docker build needed — requires Python 3.
+
+1. Edit `viewer/config.js` with your server URL and credentials
+2. Run `./start-viewer.sh` and open http://localhost:3000
 
 
 ## Using Your Own Data
